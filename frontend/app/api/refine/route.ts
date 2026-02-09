@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MOCK_ENABLED, createMockRefineTask } from '@/lib/mock-data';
+import { db, models } from '@/lib/db';
+import { eq } from 'drizzle-orm';
 
 const MESHY_API_KEY = process.env.MESHY_API_KEY;
 
 export async function POST(request: NextRequest) {
   try {
-    const { previewTaskId } = await request.json();
+    const { previewTaskId, modelId } = await request.json();
 
     if (!previewTaskId) {
       return NextResponse.json({ error: 'Preview task ID required' }, { status: 400 });
@@ -15,6 +17,22 @@ export async function POST(request: NextRequest) {
     if (MOCK_ENABLED || previewTaskId.startsWith('mock-')) {
       console.log('[MOCK] Refine from preview:', previewTaskId);
       const taskId = createMockRefineTask(previewTaskId);
+      
+      // Update DB if modelId provided
+      if (modelId && db) {
+        try {
+          await db.update(models)
+            .set({
+              refineTaskId: taskId,
+              status: 'refining',
+              updatedAt: new Date(),
+            })
+            .where(eq(models.id, modelId));
+        } catch (e) {
+          console.error('DB update error:', e);
+        }
+      }
+      
       return NextResponse.json({
         taskId,
         status: 'refining',
@@ -42,9 +60,26 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
+    const taskId = data.result;
+    
+    // Update DB if modelId provided
+    if (modelId && db) {
+      try {
+        await db.update(models)
+          .set({
+            refineTaskId: taskId,
+            status: 'refining',
+            updatedAt: new Date(),
+          })
+          .where(eq(models.id, modelId));
+        console.log('Updated model with refine task:', modelId, taskId);
+      } catch (e) {
+        console.error('DB update error:', e);
+      }
+    }
     
     return NextResponse.json({
-      taskId: data.result,
+      taskId,
       status: 'refining',
       message: 'Refining model. This takes about 2 minutes.',
     });
