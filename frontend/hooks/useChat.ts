@@ -9,13 +9,17 @@ export interface Message {
   timestamp: string;
 }
 
+export type JobStage = 'preview' | 'refining' | 'ready';
+
 export interface ModelJob {
   taskId: string;
+  stage: JobStage;
   status: 'generating' | 'succeeded' | 'failed';
   progress: number;
   modelUrl: string | null;
   thumbnailUrl: string | null;
   prompt: string;
+  previewTaskId?: string;  // For refine step
 }
 
 export function useChat() {
@@ -23,7 +27,7 @@ export function useChat() {
     {
       id: '1',
       role: 'assistant',
-      content: "Hi! I'm your 3D printing assistant. Tell me what you'd like to create - like \"a cute cartoon dinosaur\" or \"a rocket ship toy\" - and I'll generate a 3D model for you!",
+      content: "Hi! I'm your 3D printing assistant. Tell me what you'd like to create - I'll show you a quick preview first, then you can refine it to full detail for printing!",
       timestamp: new Date().toISOString(),
     },
   ]);
@@ -41,18 +45,26 @@ export function useChat() {
           const data = await res.json();
 
           if (data.status === 'succeeded') {
+            const isPreviewStage = currentJob.stage === 'preview';
+            
             setCurrentJob(prev => prev ? {
               ...prev,
               status: 'succeeded',
               progress: 100,
               modelUrl: data.modelUrl,
               thumbnailUrl: data.thumbnailUrl,
+              previewTaskId: isPreviewStage ? currentJob.taskId : prev.previewTaskId,
+              stage: isPreviewStage ? 'preview' : 'ready',
             } : null);
+
+            const stageMsg = isPreviewStage 
+              ? "Preview ready! Click 'Refine' to generate the full detail model for printing."
+              : `Your model is ready! Here's your ${currentJob.prompt}. Drag to rotate, scroll to zoom.`;
 
             setMessages(prev => [...prev, {
               id: crypto.randomUUID(),
               role: 'assistant',
-              content: `Your model is ready! Here's your ${currentJob.prompt}. You can rotate it to see all angles.`,
+              content: stageMsg,
               timestamp: new Date().toISOString(),
             }]);
 
@@ -67,13 +79,13 @@ export function useChat() {
         } catch (err) {
           console.error('Poll error:', err);
         }
-      }, 3000);
+      }, 2000);  // Poll every 2 sec for fast preview
     }
 
     return () => {
       if (pollInterval.current) clearInterval(pollInterval.current);
     };
-  }, [currentJob?.taskId, currentJob?.status]);
+  }, [currentJob?.taskId, currentJob?.status, currentJob?.stage]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -81,7 +93,6 @@ export function useChat() {
     setIsLoading(true);
     setError(null);
 
-    // Add user message
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -91,7 +102,6 @@ export function useChat() {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // Call generate API
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -104,9 +114,9 @@ export function useChat() {
         throw new Error(data.error);
       }
 
-      // Set up job tracking
       setCurrentJob({
         taskId: data.taskId,
+        stage: 'preview',
         status: 'generating',
         progress: 0,
         modelUrl: null,
@@ -114,11 +124,10 @@ export function useChat() {
         prompt: content,
       });
 
-      // Add assistant response
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: `Great choice! I'm creating "${content}" for you now. This usually takes about 2 minutes...`,
+        content: `Creating a quick preview of "${content}"... (~10 seconds)`,
         timestamp: new Date().toISOString(),
       }]);
 
@@ -135,6 +144,44 @@ export function useChat() {
     }
   }, []);
 
+  const refineModel = useCallback(async () => {
+    if (!currentJob?.previewTaskId) return;
+
+    setError(null);
+    
+    try {
+      const res = await fetch('/api/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ previewTaskId: currentJob.previewTaskId }),
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setCurrentJob(prev => prev ? {
+        ...prev,
+        taskId: data.taskId,
+        stage: 'refining',
+        status: 'generating',
+        progress: 0,
+      } : null);
+
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: "Refining to full detail... (~2 minutes)",
+        timestamp: new Date().toISOString(),
+      }]);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to refine');
+    }
+  }, [currentJob?.previewTaskId]);
+
   const clearJob = useCallback(() => {
     setCurrentJob(null);
   }, []);
@@ -149,9 +196,8 @@ export function useChat() {
     isLoading,
     error,
     sendMessage,
+    refineModel,
     clearJob,
     clearError,
-    confirmPrint: async () => {},  // Stub for now
-    cancelJob: clearJob,
   };
 }
