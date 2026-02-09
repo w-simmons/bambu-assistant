@@ -1,31 +1,87 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { api, Message, Job, ChatResponse } from '@/lib/api';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
-export interface UseChatReturn {
-  messages: Message[];
-  currentJob: Job | null;
-  isLoading: boolean;
-  error: string | null;
-  sendMessage: (content: string) => Promise<void>;
-  confirmPrint: () => Promise<void>;
-  cancelJob: () => Promise<void>;
-  clearError: () => void;
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
 }
 
-export function useChat(): UseChatReturn {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [currentJob, setCurrentJob] = useState<Job | null>(null);
+export interface ModelJob {
+  taskId: string;
+  status: 'generating' | 'succeeded' | 'failed';
+  progress: number;
+  modelUrl: string | null;
+  thumbnailUrl: string | null;
+  prompt: string;
+}
+
+export function useChat() {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      role: 'assistant',
+      content: "Hi! I'm your 3D printing assistant. Tell me what you'd like to create - like \"a cute cartoon dinosaur\" or \"a rocket ship toy\" - and I'll generate a 3D model for you!",
+      timestamp: new Date().toISOString(),
+    },
+  ]);
+  const [currentJob, setCurrentJob] = useState<ModelJob | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | undefined>();
+  const pollInterval = useRef<NodeJS.Timeout | null>(null);
+
+  // Poll for job status
+  useEffect(() => {
+    if (currentJob?.taskId && currentJob.status === 'generating') {
+      pollInterval.current = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/status/${currentJob.taskId}`);
+          const data = await res.json();
+
+          if (data.status === 'succeeded') {
+            setCurrentJob(prev => prev ? {
+              ...prev,
+              status: 'succeeded',
+              progress: 100,
+              modelUrl: data.modelUrl,
+              thumbnailUrl: data.thumbnailUrl,
+            } : null);
+
+            setMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: `Your model is ready! Here's your ${currentJob.prompt}. You can rotate it to see all angles.`,
+              timestamp: new Date().toISOString(),
+            }]);
+
+            if (pollInterval.current) clearInterval(pollInterval.current);
+          } else if (data.status === 'failed') {
+            setCurrentJob(prev => prev ? { ...prev, status: 'failed' } : null);
+            setError(data.error || 'Generation failed');
+            if (pollInterval.current) clearInterval(pollInterval.current);
+          } else {
+            setCurrentJob(prev => prev ? { ...prev, progress: data.progress || prev.progress } : null);
+          }
+        } catch (err) {
+          console.error('Poll error:', err);
+        }
+      }, 3000);
+    }
+
+    return () => {
+      if (pollInterval.current) clearInterval(pollInterval.current);
+    };
+  }, [currentJob?.taskId, currentJob?.status]);
 
   const sendMessage = useCallback(async (content: string) => {
+    if (!content.trim()) return;
+
     setIsLoading(true);
     setError(null);
 
-    // Add user message immediately
+    // Add user message
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -35,76 +91,53 @@ export function useChat(): UseChatReturn {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      const response: ChatResponse = await api.sendMessage(content, conversationId);
-      
-      // Update conversation ID from first response
-      if (!conversationId && response.message.id) {
-        setConversationId(response.message.id.split('-')[0]);
+      // Call generate API
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: content, style: 'cartoon' }),
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        throw new Error(data.error);
       }
 
-      // Add assistant message
-      setMessages(prev => [...prev, response.message]);
+      // Set up job tracking
+      setCurrentJob({
+        taskId: data.taskId,
+        status: 'generating',
+        progress: 0,
+        modelUrl: null,
+        thumbnailUrl: null,
+        prompt: content,
+      });
 
-      // Update current job if present
-      if (response.job) {
-        setCurrentJob(response.job);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [conversationId]);
-
-  const confirmPrint = useCallback(async () => {
-    if (!currentJob) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const updatedJob = await api.confirmPrint(currentJob.id);
-      setCurrentJob(updatedJob);
-      
-      // Add confirmation message
-      const confirmMessage: Message = {
+      // Add assistant response
+      setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: `✅ Print job started! Your ${currentJob.prompt} is now printing. You can monitor the progress on the Printer page.`,
+        content: `Great choice! I'm creating "${content}" for you now. This usually takes about 2 minutes...`,
         timestamp: new Date().toISOString(),
-        job_id: currentJob.id,
-      };
-      setMessages(prev => [...prev, confirmMessage]);
+      }]);
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to confirm print');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentJob]);
-
-  const cancelJob = useCallback(async () => {
-    if (!currentJob) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      await api.cancelJob(currentJob.id);
-      setCurrentJob(null);
-      
-      const cancelMessage: Message = {
+      setError(err instanceof Error ? err.message : 'Failed to generate');
+      setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: '❌ Job cancelled. Let me know if you want to try something different!',
+        content: "Sorry, something went wrong. Please try again!",
         timestamp: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, cancelMessage]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel job');
+      }]);
     } finally {
       setIsLoading(false);
     }
-  }, [currentJob]);
+  }, []);
+
+  const clearJob = useCallback(() => {
+    setCurrentJob(null);
+  }, []);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -116,8 +149,9 @@ export function useChat(): UseChatReturn {
     isLoading,
     error,
     sendMessage,
-    confirmPrint,
-    cancelJob,
+    clearJob,
     clearError,
+    confirmPrint: async () => {},  // Stub for now
+    cancelJob: clearJob,
   };
 }
