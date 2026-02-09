@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { MOCK_ENABLED, createMockPreviewTask } from '@/lib/mock-data';
+import { db, models } from '@/lib/db';
 
 const MESHY_API_KEY = process.env.MESHY_API_KEY;
 
@@ -15,8 +16,26 @@ export async function POST(request: NextRequest) {
     if (MOCK_ENABLED) {
       console.log('[MOCK] Generate preview for:', prompt);
       const taskId = createMockPreviewTask();
+      
+      // Save to DB if available
+      let modelId = null;
+      if (db) {
+        try {
+          const [newModel] = await db.insert(models).values({
+            prompt,
+            style,
+            previewTaskId: taskId,
+            status: 'preview_pending',
+          }).returning();
+          modelId = newModel.id;
+        } catch (e) {
+          console.error('DB save error:', e);
+        }
+      }
+      
       return NextResponse.json({
         taskId,
+        modelId,
         status: 'generating',
         message: '[MOCK MODE] Preview generation started (5 seconds)',
       });
@@ -47,9 +66,28 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
+    const taskId = data.result;
+    
+    // Save to DB if available
+    let modelId = null;
+    if (db) {
+      try {
+        const [newModel] = await db.insert(models).values({
+          prompt,
+          style,
+          previewTaskId: taskId,
+          status: 'preview_pending',
+        }).returning();
+        modelId = newModel.id;
+        console.log('Saved model to DB:', modelId);
+      } catch (e) {
+        console.error('DB save error:', e);
+      }
+    }
     
     return NextResponse.json({
-      taskId: data.result,
+      taskId,
+      modelId,
       status: 'generating',
       message: 'Model generation started. This takes about 2 minutes.',
     });
