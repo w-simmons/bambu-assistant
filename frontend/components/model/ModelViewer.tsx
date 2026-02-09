@@ -1,8 +1,9 @@
 'use client';
 
-import { Suspense, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment, useGLTF, Center, Html } from '@react-three/drei';
+import { Suspense, useRef, useState, useEffect, Component, ReactNode } from 'react';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { OrbitControls, Environment, Center, Html } from '@react-three/drei';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 
 interface ModelViewerProps {
@@ -11,8 +12,32 @@ interface ModelViewerProps {
   autoRotate?: boolean;
 }
 
+// Error Boundary for Three.js crashes
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
 function Model({ url, autoRotate }: { url: string; autoRotate?: boolean }) {
-  const { scene } = useGLTF(url);
+  const gltf = useLoader(GLTFLoader, url);
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame((_, delta) => {
@@ -24,7 +49,7 @@ function Model({ url, autoRotate }: { url: string; autoRotate?: boolean }) {
   return (
     <Center>
       <group ref={groupRef}>
-        <primitive object={scene} />
+        <primitive object={gltf.scene} />
       </group>
     </Center>
   );
@@ -33,55 +58,84 @@ function Model({ url, autoRotate }: { url: string; autoRotate?: boolean }) {
 function LoadingSpinner() {
   return (
     <Html center>
-      <div className="flex flex-col items-center gap-2 text-muted-foreground">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm">Loading model...</span>
+      <div className="flex flex-col items-center gap-2">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm text-gray-600">Loading 3D model...</span>
       </div>
     </Html>
   );
 }
 
-function ErrorFallback({ error }: { error: Error }) {
+function ErrorDisplay({ message }: { message: string }) {
   return (
-    <Html center>
-      <div className="flex flex-col items-center gap-2 text-destructive">
-        <span className="text-2xl">⚠️</span>
-        <span className="text-sm">Failed to load model</span>
-        <span className="text-xs text-muted-foreground">{error.message}</span>
-      </div>
-    </Html>
-  );
-}
-
-export function ModelViewer({ modelUrl, className, autoRotate = true }: ModelViewerProps) {
-  return (
-    <div className={className}>
-      <Canvas
-        camera={{ position: [0, 0, 5], fov: 50 }}
-        style={{ background: 'transparent' }}
-      >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[10, 10, 5]} intensity={1} />
-        <directionalLight position={[-10, -10, -5]} intensity={0.5} />
-        
-        <Suspense fallback={<LoadingSpinner />}>
-          <Model url={modelUrl} autoRotate={autoRotate} />
-          <Environment preset="studio" />
-        </Suspense>
-        
-        <OrbitControls
-          enablePan={false}
-          enableZoom={true}
-          minDistance={2}
-          maxDistance={10}
-          autoRotate={false}
-        />
-      </Canvas>
+    <div className="flex flex-col items-center justify-center h-full bg-gray-100 rounded-lg p-4">
+      <span className="text-4xl mb-2">⚠️</span>
+      <span className="text-sm text-red-600 font-medium">Failed to load 3D model</span>
+      <span className="text-xs text-gray-500 mt-1 text-center max-w-xs">{message}</span>
     </div>
   );
 }
 
-// Preload models for better UX
-export function preloadModel(url: string) {
-  useGLTF.preload(url);
+export function ModelViewer({ modelUrl, className, autoRotate = true }: ModelViewerProps) {
+  const [error, setError] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+    // Reset error when URL changes
+    setError(null);
+  }, [modelUrl]);
+
+  // Don't render on server
+  if (!isClient) {
+    return (
+      <div className={`${className} bg-gray-100 rounded-lg flex items-center justify-center`}>
+        <span className="text-gray-500">Loading viewer...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return <ErrorDisplay message={error} />;
+  }
+
+  if (!modelUrl) {
+    return (
+      <div className={`${className} bg-gray-100 rounded-lg flex items-center justify-center`}>
+        <span className="text-gray-500">No model to display</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${className} bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg overflow-hidden`}>
+      <ErrorBoundary fallback={<ErrorDisplay message="3D viewer crashed. Try refreshing." />}>
+        <Canvas
+          camera={{ position: [0, 0, 5], fov: 50 }}
+          style={{ background: 'transparent' }}
+          onError={(e) => {
+            console.error('Canvas error:', e);
+            setError('Failed to initialize 3D viewer');
+          }}
+        >
+          <ambientLight intensity={0.6} />
+          <directionalLight position={[10, 10, 5]} intensity={1} />
+          <directionalLight position={[-10, -10, -5]} intensity={0.4} />
+          
+          <Suspense fallback={<LoadingSpinner />}>
+            <Model url={modelUrl} autoRotate={autoRotate} />
+            <Environment preset="studio" />
+          </Suspense>
+          
+          <OrbitControls
+            enablePan={false}
+            enableZoom={true}
+            minDistance={2}
+            maxDistance={10}
+            autoRotate={false}
+          />
+        </Canvas>
+      </ErrorBoundary>
+    </div>
+  );
 }

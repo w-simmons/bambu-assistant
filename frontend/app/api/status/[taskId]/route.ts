@@ -21,6 +21,8 @@ export async function GET(
 
     const data = await response.json();
 
+    console.log('Meshy response:', JSON.stringify(data, null, 2));
+    
     return NextResponse.json({
       taskId: data.id,
       status: data.status.toLowerCase(),
