@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { MOCK_ENABLED, getMockTaskStatus } from '@/lib/mock-data';
 
 const MESHY_API_KEY = process.env.MESHY_API_KEY;
 
@@ -9,6 +10,17 @@ export async function GET(
   try {
     const { taskId } = await params;
 
+    // Mock mode for development
+    if (MOCK_ENABLED || taskId.startsWith('mock-')) {
+      const mockStatus = getMockTaskStatus(taskId);
+      console.log('[MOCK] Status for', taskId, ':', mockStatus.status, mockStatus.progress + '%');
+      return NextResponse.json({
+        taskId,
+        ...mockStatus,
+      });
+    }
+
+    // Real Meshy API
     const response = await fetch(`https://api.meshy.ai/openapi/v2/text-to-3d/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${MESHY_API_KEY}`,
@@ -20,7 +32,6 @@ export async function GET(
     }
 
     const data = await response.json();
-
     console.log('Meshy response:', JSON.stringify(data, null, 2));
     
     return NextResponse.json({

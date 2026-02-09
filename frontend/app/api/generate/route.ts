@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { MOCK_ENABLED, createMockPreviewTask } from '@/lib/mock-data';
 
 const MESHY_API_KEY = process.env.MESHY_API_KEY;
 
@@ -10,10 +11,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Prompt required' }, { status: 400 });
     }
 
-    // Enhance prompt for printability
+    // Mock mode for development
+    if (MOCK_ENABLED) {
+      console.log('[MOCK] Generate preview for:', prompt);
+      const taskId = createMockPreviewTask();
+      return NextResponse.json({
+        taskId,
+        status: 'generating',
+        message: '[MOCK MODE] Preview generation started (5 seconds)',
+      });
+    }
+
+    // Real Meshy API
     const enhancedPrompt = `${prompt}, ${style} style, solid base for stability, suitable for 3D printing, high quality details`;
 
-    // Create preview task
     const response = await fetch('https://api.meshy.ai/openapi/v2/text-to-3d', {
       method: 'POST',
       headers: {
