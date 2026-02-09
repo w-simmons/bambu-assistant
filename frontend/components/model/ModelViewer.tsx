@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import Script from 'next/script';
 
 interface ModelViewerProps {
   modelUrl: string;
@@ -12,20 +13,13 @@ interface ModelViewerProps {
 
 export function ModelViewer({ modelUrl, thumbnailUrl, className, autoRotate = true }: ModelViewerProps) {
   const [isClient, setIsClient] = useState(false);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIsClient(true);
     setLoadError(false);
-    
-    // Dynamically import model-viewer to avoid SSR issues
-    if (typeof window !== 'undefined') {
-      import('@google/model-viewer').catch(() => {
-        console.error('Failed to load model-viewer');
-        setLoadError(true);
-      });
-    }
   }, [modelUrl]);
 
   if (!isClient) {
@@ -61,7 +55,24 @@ export function ModelViewer({ modelUrl, thumbnailUrl, className, autoRotate = tr
   }
 
   return (
-    <div ref={containerRef} className={`${className} bg-gray-900 rounded-lg overflow-hidden`}>
+    <div ref={containerRef} className={`${className} bg-gray-900 rounded-lg overflow-hidden relative`}>
+      {/* Load model-viewer from CDN for better mobile support */}
+      <Script
+        src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"
+        type="module"
+        onLoad={() => setScriptLoaded(true)}
+        onError={() => setLoadError(true)}
+      />
+      
+      {!scriptLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            <span className="text-gray-400 text-sm">Loading 3D viewer...</span>
+          </div>
+        </div>
+      )}
+      
       {/* @ts-expect-error - model-viewer is a web component */}
       <model-viewer
         src={modelUrl}
@@ -76,6 +87,7 @@ export function ModelViewer({ modelUrl, thumbnailUrl, className, autoRotate = tr
         style={{
           width: '100%',
           height: '100%',
+          minHeight: '300px',
           backgroundColor: '#1a1a1a',
           touchAction: 'none',
         }}
