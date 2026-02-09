@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, models } from '@/lib/db';
+import { requireDb, models } from '@/lib/db';
 import { eq } from 'drizzle-orm';
 
 // GET /api/models/[id] - Get a single model
@@ -8,6 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const db = requireDb();
     const { id } = await params;
     
     const [model] = await db
@@ -23,7 +24,8 @@ export async function GET(
     return NextResponse.json(model);
   } catch (error) {
     console.error('Get model error:', error);
-    return NextResponse.json({ error: 'Failed to get model' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Failed to get model';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -33,6 +35,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const db = requireDb();
     const { id } = await params;
     const body = await request.json();
     
@@ -52,7 +55,8 @@ export async function PATCH(
     return NextResponse.json(updated);
   } catch (error) {
     console.error('Update model error:', error);
-    return NextResponse.json({ error: 'Failed to update model' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Failed to update model';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -62,6 +66,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const db = requireDb();
     const { id } = await params;
     
     const [deleted] = await db
@@ -76,6 +81,7 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete model error:', error);
-    return NextResponse.json({ error: 'Failed to delete model' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Failed to delete model';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

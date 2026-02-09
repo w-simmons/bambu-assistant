@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, models } from '@/lib/db';
-import { desc, eq } from 'drizzle-orm';
+import { requireDb, models } from '@/lib/db';
+import { desc } from 'drizzle-orm';
 
 // GET /api/models - List all models
 export async function GET(request: NextRequest) {
   try {
+    const db = requireDb();
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '20');
     
@@ -17,13 +18,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error('List models error:', error);
-    return NextResponse.json({ error: 'Failed to list models' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Failed to list models';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 // POST /api/models - Create a new model
 export async function POST(request: NextRequest) {
   try {
+    const db = requireDb();
     const body = await request.json();
     const { prompt, style, previewTaskId } = body;
 
@@ -44,6 +47,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(newModel);
   } catch (error) {
     console.error('Create model error:', error);
-    return NextResponse.json({ error: 'Failed to create model' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Failed to create model';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
