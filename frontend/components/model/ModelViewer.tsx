@@ -5,9 +5,11 @@ import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import { OrbitControls, Environment, Center, Html } from '@react-three/drei';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
+import Image from 'next/image';
 
 interface ModelViewerProps {
   modelUrl: string;
+  thumbnailUrl?: string;
   className?: string;
   autoRotate?: boolean;
 }
@@ -18,8 +20,8 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, ErrorBoundaryState> {
-  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+class ErrorBoundary extends Component<{ children: ReactNode; onError: () => void }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode; onError: () => void }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
@@ -28,9 +30,13 @@ class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode
     return { hasError: true, error };
   }
 
+  componentDidCatch() {
+    this.props.onError();
+  }
+
   render() {
     if (this.state.hasError) {
-      return this.props.fallback;
+      return null;
     }
     return this.props.children;
   }
@@ -66,37 +72,40 @@ function LoadingSpinner() {
   );
 }
 
-function ErrorDisplay({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full bg-gray-100 rounded-lg p-4">
-      <span className="text-4xl mb-2">⚠️</span>
-      <span className="text-sm text-red-600 font-medium">Failed to load 3D model</span>
-      <span className="text-xs text-gray-500 mt-1 text-center max-w-xs">{message}</span>
-    </div>
-  );
-}
-
-export function ModelViewer({ modelUrl, className, autoRotate = true }: ModelViewerProps) {
-  const [error, setError] = useState<string | null>(null);
+export function ModelViewer({ modelUrl, thumbnailUrl, className, autoRotate = true }: ModelViewerProps) {
+  const [viewerFailed, setViewerFailed] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
-    // Reset error when URL changes
-    setError(null);
+    setViewerFailed(false);
   }, [modelUrl]);
 
-  // Don't render on server
-  if (!isClient) {
+  // Show thumbnail fallback if viewer fails or on server
+  if (!isClient || viewerFailed) {
+    if (thumbnailUrl) {
+      return (
+        <div className={`${className} bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg overflow-hidden relative`}>
+          <Image
+            src={thumbnailUrl}
+            alt="3D Model Preview"
+            fill
+            className="object-contain"
+            unoptimized
+          />
+          {viewerFailed && (
+            <div className="absolute bottom-2 left-2 right-2 bg-black/50 text-white text-xs p-2 rounded text-center">
+              3D viewer unavailable • Showing preview image
+            </div>
+          )}
+        </div>
+      );
+    }
     return (
       <div className={`${className} bg-gray-100 rounded-lg flex items-center justify-center`}>
-        <span className="text-gray-500">Loading viewer...</span>
+        <span className="text-gray-500">Loading...</span>
       </div>
     );
-  }
-
-  if (error) {
-    return <ErrorDisplay message={error} />;
   }
 
   if (!modelUrl) {
@@ -109,13 +118,12 @@ export function ModelViewer({ modelUrl, className, autoRotate = true }: ModelVie
 
   return (
     <div className={`${className} bg-gradient-to-b from-gray-50 to-gray-100 rounded-lg overflow-hidden`}>
-      <ErrorBoundary fallback={<ErrorDisplay message="3D viewer crashed. Try refreshing." />}>
+      <ErrorBoundary onError={() => setViewerFailed(true)}>
         <Canvas
           camera={{ position: [0, 0, 5], fov: 50 }}
           style={{ background: 'transparent' }}
-          onError={(e) => {
-            console.error('Canvas error:', e);
-            setError('Failed to initialize 3D viewer');
+          onCreated={({ gl }) => {
+            gl.setClearColor(0x000000, 0);
           }}
         >
           <ambientLight intensity={0.6} />
@@ -132,7 +140,6 @@ export function ModelViewer({ modelUrl, className, autoRotate = true }: ModelVie
             enableZoom={true}
             minDistance={2}
             maxDistance={10}
-            autoRotate={false}
           />
         </Canvas>
       </ErrorBoundary>

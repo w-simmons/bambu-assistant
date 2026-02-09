@@ -93,7 +93,11 @@ export function ChatInterface() {
             <div className="max-w-2xl mx-auto">
               <Card className="overflow-hidden">
                 <div className="aspect-square relative">
-                  <ModelViewer modelUrl={currentJob.modelUrl} className="w-full h-full" />
+                  <ModelViewer 
+                    modelUrl={currentJob.modelUrl} 
+                    thumbnailUrl={currentJob.thumbnailUrl || undefined}
+                    className="w-full h-full" 
+                  />
                 </div>
                 <div className="p-4 border-t">
                   <div className="flex items-center justify-between">
