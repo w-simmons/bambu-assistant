@@ -69,14 +69,15 @@ export function ModelViewer({ modelUrl, thumbnailUrl, className, autoRotate = tr
         alt="3D Model"
         auto-rotate={autoRotate ? '' : undefined}
         camera-controls
-        touch-action="pan-y"
-        interaction-prompt="none"
+        touch-action="none"
+        interaction-prompt="auto"
         shadow-intensity="1"
         exposure="0.8"
         style={{
           width: '100%',
           height: '100%',
           backgroundColor: '#1a1a1a',
+          touchAction: 'none',
         }}
         onError={() => setLoadError(true)}
       />
